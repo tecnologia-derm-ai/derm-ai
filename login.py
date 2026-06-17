@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import mercadopago
 from datetime import date
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -10,7 +11,11 @@ load_dotenv()
 # Configuração do Supabase
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-STRIPE_PAYMENT_LINK = os.environ.get("STRIPE_PAYMENT_LINK", "https://MUDE_PARA_SEU_LINK_DO_STRIPE")
+
+# Configurações do Mercado Pago
+MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
+MP_PRICE = float(os.environ.get("MP_PRICE", "1.00")) # Valor alterado para 1.00 para facilitar testes de produção
+APP_URL = os.environ.get("APP_URL", "http://localhost:8501")
 
 # Inicializando Supabase se as chaves existirem
 supabase: Client | None = None
@@ -47,6 +52,47 @@ def checar_assinatura(email):
     except Exception as e:
         st.error(f"Erro ao buscar assinatura: {e}")
         return False
+
+# Função para gerar link de pagamento dinâmico com Mercado Pago
+def gerar_link_pagamento(email):
+    if not MP_ACCESS_TOKEN:
+        st.error("MP_ACCESS_TOKEN não configurado no seu ambiente. Não é possível gerar o pagamento.")
+        return None
+        
+    try:
+        sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+        
+        preference_data = {
+            "items": [
+                {
+                    "id": "assinatura_derma_ai",
+                    "title": "Assinatura Derma Ai - 1 ano",
+                    "quantity": 1,
+                    "currency_id": "BRL",
+                    "unit_price": MP_PRICE
+                }
+            ],
+            "payer": {
+                "email": email
+            },
+            "back_urls": {
+                "success": f"{APP_URL}?success=true",
+                "failure": f"{APP_URL}?canceled=true",
+                "pending": f"{APP_URL}?pending=true"
+            },
+            "auto_return": "approved",
+            "external_reference": email,
+            "statement_descriptor": "DERMA AI"
+        }
+        
+        preference_response = sdk.preference().create(preference_data)
+        preference = preference_response["response"]
+        
+        # URL de init_point é o link para o Checkout Pro
+        return preference["init_point"]
+    except Exception as e:
+        st.error(f"Erro ao comunicar com o Mercado Pago: {e}")
+        return None
 
 # 🔒 LOGIN / CADASTRO
 if not st.session_state.logged_in:
@@ -131,13 +177,21 @@ if not st.session_state.logged_in:
                         
                         if status == "desativado":
                             st.error(f"Ative seu cadastro hoje")
-                            st.markdown(f"[💳 **Clique aqui para ativar seu plano**]({STRIPE_PAYMENT_LINK})")
+                            if st.button("💳 **Clique aqui para ativar seu plano**", key="btn_ativar_plano"):
+                                with st.spinner("Gerando ambiente de pagamento seguro..."):
+                                    link = gerar_link_pagamento(user_email)
+                                    if link:
+                                        st.markdown(f'<meta http-equiv="refresh" content="0;url={link}">', unsafe_allow_html=True)
                         elif status == "ativo":
                             if data_fim_str:
                                 data_fim = date.fromisoformat(data_fim_str)
                                 if hoje > data_fim:
                                     st.warning("Garanta mais tempo e reative seu cadastro")
-                                    st.markdown(f"[💳 **Clique aqui para reativar seu cadastro**]({STRIPE_PAYMENT_LINK})")
+                                    if st.button("💳 **Clique aqui para reativar seu cadastro**", key="btn_reativar_plano"):
+                                        with st.spinner("Gerando ambiente de pagamento seguro..."):
+                                            link = gerar_link_pagamento(user_email)
+                                            if link:
+                                                st.markdown(f'<meta http-equiv="refresh" content="0;url={link}">', unsafe_allow_html=True)
                                 else:
                                     # Acesso Permitido
                                     st.success("Login efetuado com sucesso!")
@@ -178,8 +232,11 @@ if not st.session_state.logged_in:
                         # Ignora se já existir
                         pass
                     
-                    st.success("Conta criada com sucesso! Por favor, ative seu plano para utilizar.")
-                    st.markdown(f"[💳 **Ative seu cadastro hoje adquirindo seu plano**]({STRIPE_PAYMENT_LINK})")
+                    st.success("Conta criada com sucesso! Redirecionando para ativação do plano...")
+                    link = gerar_link_pagamento(email_cad)
+                    if link:
+                        st.markdown(f'<meta http-equiv="refresh" content="3;url={link}">', unsafe_allow_html=True)
+                        st.markdown(f"*(Se não for redirecionado em instantes, [clique aqui]({link}))*")
                 
                 except Exception as e:
                     st.error(f"Não foi possível criar a conta: {e}")
