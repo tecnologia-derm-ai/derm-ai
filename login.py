@@ -16,7 +16,9 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
 MP_PRICE = float(os.environ.get("MP_PRICE", "1.00")) # Valor alterado para 1.00 para facilitar testes de produção
 APP_URL = os.environ.get("APP_URL", "http://localhost:8501").strip()
-if APP_URL and not APP_URL.startswith("http"):
+if not APP_URL:
+    APP_URL = "http://localhost:8501"
+elif not APP_URL.startswith("http"):
     APP_URL = "https://" + APP_URL
 
 # Inicializando Supabase se as chaves existirem
@@ -92,7 +94,7 @@ def gerar_link_pagamento(email):
         # Verifica se a requisição falhou (status diferente de 200/201)
         if preference_response.get("status") not in (200, 201):
             erro_detalhado = preference_response.get("response", {})
-            st.error(f"O Mercado Pago recusou a criação do link. Motivo: {erro_detalhado}")
+            st.error(f"O Mercado Pago recusou a criação do link. Motivo: {erro_detalhado} | URL enviada: {APP_URL}?success=true")
             return None
             
         preference = preference_response.get("response", {})
@@ -190,21 +192,21 @@ if not st.session_state.logged_in:
                         
                         if status == "desativado":
                             st.error(f"Ative seu cadastro hoje")
-                            if st.button("💳 **Clique aqui para ativar seu plano**", key="btn_ativar_plano"):
-                                with st.spinner("Gerando ambiente de pagamento seguro..."):
-                                    link = gerar_link_pagamento(user_email)
-                                    if link:
-                                        st.markdown(f'<meta http-equiv="refresh" content="0;url={link}">', unsafe_allow_html=True)
+                            with st.spinner("Gerando ambiente de pagamento seguro..."):
+                                link = gerar_link_pagamento(user_email)
+                                if link:
+                                    st.markdown(f'<meta http-equiv="refresh" content="2;url={link}">', unsafe_allow_html=True)
+                                    st.link_button("💳 **Clique aqui para ativar seu plano**", link)
                         elif status == "ativo":
                             if data_fim_str:
                                 data_fim = date.fromisoformat(data_fim_str)
                                 if hoje > data_fim:
                                     st.warning("Garanta mais tempo e reative seu cadastro")
-                                    if st.button("💳 **Clique aqui para reativar seu cadastro**", key="btn_reativar_plano"):
-                                        with st.spinner("Gerando ambiente de pagamento seguro..."):
-                                            link = gerar_link_pagamento(user_email)
-                                            if link:
-                                                st.markdown(f'<meta http-equiv="refresh" content="0;url={link}">', unsafe_allow_html=True)
+                                    with st.spinner("Gerando ambiente de pagamento seguro..."):
+                                        link = gerar_link_pagamento(user_email)
+                                        if link:
+                                            st.markdown(f'<meta http-equiv="refresh" content="2;url={link}">', unsafe_allow_html=True)
+                                            st.link_button("💳 **Clique aqui para reativar seu cadastro**", link)
                                 else:
                                     # Acesso Permitido
                                     st.success("Login efetuado com sucesso!")
