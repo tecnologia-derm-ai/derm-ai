@@ -61,7 +61,7 @@ async def mercadopago_webhook(request: Request):
                 
                 if status_pagamento == "approved" and email_cliente:
                     if supabase:
-                        atualizar_assinatura(email_cliente)
+                        atualizar_assinatura(email_cliente, payment_id)
                         print(f"Assinatura atualizada/criada para o email: {email_cliente}")
                     else:
                         print("Supabase não configurado.")
@@ -77,7 +77,7 @@ async def mercadopago_webhook(request: Request):
         
     return {"status": "success"}
 
-def atualizar_assinatura(email: str):
+def atualizar_assinatura(email: str, payment_id: str):
     """
     Se estiver desativado -> muda para ativo, data_inicio hoje, data_fim = hoje + 365 dias
     Se estiver ativo -> só adiciona 365 dias na data_fim
@@ -99,12 +99,20 @@ def atualizar_assinatura(email: str):
             
             if status_atual == "ativo" and data_fim_str:
                 data_fim_atual = date.fromisoformat(data_fim_str)
-                # Se ainda tem tempo sobrando, soma a partir de hoje ou do fim? 
+                last_payment_id = reg.get("last_payment_id")
+                
+                # Idempotência (Padrão Ouro): Prevenção contra Webhooks/IPNs duplicados do Mercado Pago!
+                if last_payment_id == str(payment_id):
+                    print(f"Notificação duplicada evitada (Idempotência)! O pagamento {payment_id} de {email} já foi processado.")
+                    return
+                    
+                # Se ainda tem tempo sobrando, soma a partir do fim atual 
                 # Conforme regra, muda apenas o período estendendo
                 nova_data_fim = data_fim_atual + um_ano
                 # data inicio continua a mesma, então não atualizar
                 supabase.table("user_subscriptions").update({
-                    "data_fim": nova_data_fim.isoformat()
+                    "data_fim": nova_data_fim.isoformat(),
+                    "last_payment_id": str(payment_id)
                 }).eq("email", email).execute()
                 
             else:
@@ -112,7 +120,8 @@ def atualizar_assinatura(email: str):
                 supabase.table("user_subscriptions").update({
                     "status": novo_status,
                     "data_inicio": nova_data_inicio.isoformat(),
-                    "data_fim": nova_data_fim.isoformat()
+                    "data_fim": nova_data_fim.isoformat(),
+                    "last_payment_id": str(payment_id)
                 }).eq("email", email).execute()
         else:
             # Caso não exista registro, criamos um novo já ativo
@@ -120,7 +129,8 @@ def atualizar_assinatura(email: str):
                 "email": email,
                 "status": "ativo",
                 "data_inicio": hoje.isoformat(),
-                "data_fim": (hoje + um_ano).isoformat()
+                "data_fim": (hoje + um_ano).isoformat(),
+                "last_payment_id": str(payment_id)
             }).execute()
             
     except Exception as e:
