@@ -15,7 +15,9 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 # Configurações do Mercado Pago
 MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
 MP_PRICE = float(os.environ.get("MP_PRICE", "1.00")) # Valor alterado para 1.00 para facilitar testes de produção
-APP_URL = os.environ.get("APP_URL", "http://localhost:8501")
+APP_URL = os.environ.get("APP_URL", "http://localhost:8501").strip()
+if APP_URL and not APP_URL.startswith("http"):
+    APP_URL = "https://" + APP_URL
 
 # Inicializando Supabase se as chaves existirem
 supabase: Client | None = None
