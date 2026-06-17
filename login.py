@@ -21,6 +21,8 @@ if not APP_URL:
 elif not APP_URL.startswith("http"):
     APP_URL = "https://" + APP_URL
 
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://derma-ai-prd-webhook.onrender.com/webhook")
+
 # Inicializando Supabase se as chaves existirem
 supabase: Client | None = None
 if SUPABASE_URL and SUPABASE_KEY:
@@ -85,6 +87,7 @@ def gerar_link_pagamento(email):
                 "pending": f"{APP_URL}?pending=true"
             },
             "auto_return": "approved",
+            "notification_url": WEBHOOK_URL,
             "external_reference": email,
             "statement_descriptor": "DERMA AI"
         }
