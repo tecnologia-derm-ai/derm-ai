@@ -14,7 +14,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # Configurações do Mercado Pago
 MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
-MP_PRICE = float(os.environ.get("MP_PRICE", "1.00")) # Valor alterado para 1.00 para facilitar testes de produção
+MP_PRICE = float(os.environ.get("MP_PRICE", "800.00")) # Preço oficial do plano
 APP_URL = os.environ.get("APP_URL", "http://localhost:8501").strip()
 if not APP_URL:
     APP_URL = "http://localhost:8501"
@@ -30,6 +30,23 @@ if SUPABASE_URL and SUPABASE_KEY:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
         st.error(f"Erro ao conectar ao Supabase: {e}")
+
+def traduzir_erro_auth(erro: Exception) -> str:
+    msg = str(erro)
+    if "User already registered" in msg:
+        return "Este e-mail já está cadastrado."
+    elif "Invalid login credentials" in msg:
+        return "E-mail ou senha incorretos."
+    elif "Password should be at least" in msg:
+        return "A senha deve ter pelo menos 6 caracteres."
+    elif "Email not confirmed" in msg:
+        return "Por favor, confirme seu e-mail (verifique sua caixa de entrada)."
+    elif "User not found" in msg:
+        return "Usuário não encontrado."
+    elif "over the email rate limit" in msg.lower():
+        return "Muitos e-mails enviados. Aguarde um momento e tente novamente."
+    else:
+        return "Ocorreu um erro no servidor. Tente novamente."
 
 # estado de login
 if "logged_in" not in st.session_state:
@@ -132,7 +149,7 @@ if not st.session_state.logged_in:
             st.session_state.show_reset_password = True
             st.rerun()
         except Exception as e:
-            st.error(f"O link de recuperação é inválido ou expirou. {e}")
+            st.error(f"O link de recuperação é inválido ou expirou. Detalhe: {traduzir_erro_auth(e)}")
             st.query_params.clear()
 
     # Fluxo de redefinição de senha
@@ -151,7 +168,7 @@ if not st.session_state.logged_in:
                     st.session_state.show_reset_password = False
                     supabase.auth.sign_out()
                 except Exception as e:
-                    st.error(f"Erro ao atualizar a senha: {e}")
+                    st.error(f"Erro ao atualizar a senha: {traduzir_erro_auth(e)}")
             elif nova_senha != confirmar_senha:
                 st.warning("As senhas não coincidem.")
             else:
@@ -220,7 +237,7 @@ if not st.session_state.logged_in:
                     
                 except Exception as e:
                     # Pega a mensagem de erro da exception
-                    st.error("Falha no login. Verifique seu email e senha.")
+                    st.error(traduzir_erro_auth(e))
             else:
                 st.warning("Preencha email e senha.")
 
@@ -257,7 +274,7 @@ if not st.session_state.logged_in:
                         st.markdown(f"*(Se não for redirecionado em instantes, [clique aqui]({link}))*")
                 
                 except Exception as e:
-                    st.error(f"Não foi possível criar a conta: {e}")
+                    st.error(f"Não foi possível criar a conta: {traduzir_erro_auth(e)}")
             else:
                 st.warning("Preencha email e senha.")
 
@@ -271,7 +288,7 @@ if not st.session_state.logged_in:
                     supabase.auth.reset_password_email(email_rec)
                     st.success("Se o e-mail estiver cadastrado, você receberá um link de recuperação em breve.")
                 except Exception as e:
-                    st.error("Erro ao solicitar a recuperação. Tente novamente.")
+                    st.error(f"Erro ao solicitar a recuperação: {traduzir_erro_auth(e)}")
             else:
                 st.warning("Preencha o e-mail.")
 
