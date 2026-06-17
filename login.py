@@ -86,12 +86,23 @@ def gerar_link_pagamento(email):
         }
         
         preference_response = sdk.preference().create(preference_data)
-        preference = preference_response["response"]
         
+        # Verifica se a requisição falhou (status diferente de 200/201)
+        if preference_response.get("status") not in (200, 201):
+            erro_detalhado = preference_response.get("response", {})
+            st.error(f"O Mercado Pago recusou a criação do link. Motivo: {erro_detalhado}")
+            return None
+            
+        preference = preference_response.get("response", {})
+        
+        if "init_point" not in preference:
+            st.error(f"Resposta inesperada do Mercado Pago: {preference}")
+            return None
+            
         # URL de init_point é o link para o Checkout Pro
         return preference["init_point"]
     except Exception as e:
-        st.error(f"Erro ao comunicar com o Mercado Pago: {e}")
+        st.error(f"Erro ao comunicar com o Mercado Pago: {str(e)}")
         return None
 
 # 🔒 LOGIN / CADASTRO
