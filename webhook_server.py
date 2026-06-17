@@ -1,15 +1,11 @@
 import os
-import stripe
-from fastapi import FastAPI, Request, Header, HTTPException
+import mercadopago
+from fastapi import FastAPI, Request, HTTPException
 from supabase import create_client, Client
 from datetime import date, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Configuração do Stripe
-stripe.api_key = os.environ.get("STRIPE_API_KEY")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 # Configuração do Supabase
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -19,53 +15,66 @@ supabase: Client | None = None
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Stripe Webhook Server")
+# Configuração do Mercado Pago
+MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
+sdk = mercadopago.SDK(MP_ACCESS_TOKEN) if MP_ACCESS_TOKEN else None
+
+app = FastAPI(title="Mercado Pago Webhook Server")
 
 @app.post("/webhook")
-async def stripe_webhook(request: Request, stripe_signature: str = Header(None)):
-    if not STRIPE_WEBHOOK_SECRET:
-        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET não configurado")
-    
-    payload = await request.body()
-    
+async def mercadopago_webhook(request: Request):
+    if not sdk:
+        print("Erro: MP_ACCESS_TOKEN não configurado no servidor.")
+        return {"status": "error", "detail": "MP_ACCESS_TOKEN não configurado"}
+
     try:
-        event = stripe.Webhook.construct_event(
-            payload, stripe_signature, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError as e:
-        # Payload inválido
-        raise HTTPException(status_code=400, detail="Payload inválido")
-    except stripe.error.SignatureVerificationError as e:
-        # Assinatura inválida
-        raise HTTPException(status_code=400, detail="Assinatura inválida")
-
-    # Trata os eventos
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
+        # Tenta pegar o payload como JSON
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
         
-        # Pega o email do cliente de forma garantida contra objetos limitados do SDK
-        email = None
-        cd = getattr(session, 'customer_details', None)
-        if cd:
-            email = getattr(cd, 'email', None)
-            
-        if not email:
-            email = getattr(session, 'customer_email', None)
-            
-        if email and supabase:
-            atualizar_assinatura(email)
-            print(f"Assinatura atualizada para o email: {email}")
-        else:
-            print("Email não encontrado no payload do Stripe ou Supabase não configurado.")
-            
-    elif event['type'] == 'invoice.payment_succeeded':
-        # Também pode ser usado para renovações automáticas
-        invoice = event['data']['object']
-        email = getattr(invoice, 'customer_email', None)
-        if email and supabase:
-            atualizar_assinatura(email)
-            print(f"Renovação efetuada para o email: {email}")
+        # Pega também os query parameters
+        query_params = dict(request.query_params)
+        
+        # Descobre o tipo do evento e o ID
+        topic = payload.get("type") or payload.get("topic") or query_params.get("topic") or query_params.get("type")
+        
+        payment_id = None
+        if payload.get("data") and payload["data"].get("id"):
+            payment_id = payload["data"]["id"]
+        elif query_params.get("data.id"):
+            payment_id = query_params.get("data.id")
+        elif query_params.get("id"):
+            payment_id = query_params.get("id")
 
+        if topic == "payment" and payment_id:
+            # 1. Busca os detalhes do pagamento na API oficial do Mercado Pago (para garantir segurança contra fraudes)
+            payment_info = sdk.payment().get(payment_id)
+            
+            if payment_info["status"] == 200:
+                payment_data = payment_info["response"]
+                
+                status_pagamento = payment_data.get("status")
+                # O external_reference é onde guardamos o e-mail do cliente ao gerar o link
+                email_cliente = payment_data.get("external_reference") 
+                
+                if status_pagamento == "approved" and email_cliente:
+                    if supabase:
+                        atualizar_assinatura(email_cliente)
+                        print(f"Assinatura atualizada/criada para o email: {email_cliente}")
+                    else:
+                        print("Supabase não configurado.")
+                else:
+                    print(f"Notificação recebida, mas pagamento não está aprovado ou sem email. Status: {status_pagamento}")
+            else:
+                print(f"Falha ao consultar pagamento no Mercado Pago. Status Http: {payment_info['status']}")
+
+    except Exception as e:
+        print(f"Erro ao processar webhook: {e}")
+        # Retorna 200 de qualquer forma para o MP parar de reenviar a notificação
+        pass
+        
     return {"status": "success"}
 
 def atualizar_assinatura(email: str):

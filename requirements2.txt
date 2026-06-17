@@ -67,6 +67,6 @@ urllib3==2.6.3
 watchdog==6.0.0
 pydub
 supabase
-stripe
+mercadopago
 fastapi
 uvicorn
